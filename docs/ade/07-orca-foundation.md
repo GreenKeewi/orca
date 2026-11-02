@@ -4,6 +4,8 @@
 
 The user has chosen to reuse [stablyai/orca](https://github.com/stablyai/orca) and retain **all existing Orca features**, adding our requirements only where they are missing or insufficient. This supersedes the earlier greenfield assumptions and any table that appeared to defer or remove existing upstream functionality.
 
+The user further clarified that the actual Orca application and its existing design are the starting point. Add our missing features on top first; feature removals happen later only when the user chooses them. See [approved execution scope](09-approved-execution-scope.md). The separate concept website is not the implementation foundation.
+
 Tauri remains a requirement. This is a full application port and extension, not a smaller alternative UI with a subset of Orca. Internal prototypes can be incomplete, but may not be labeled a feature-complete replacement.
 
 ## Pinned starting point

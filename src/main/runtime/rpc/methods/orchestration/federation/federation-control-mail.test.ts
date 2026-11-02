@@ -1,3 +1,11 @@
+import { startEncryptedFederationPeer } from './federation-encrypted-transport.test-support'
+import {
+  authenticateMobileWsSession,
+  createEncryptedWsResponseReader,
+  sendEncryptedWsRequest,
+  waitForWsClose
+} from '../../../../runtime-rpc-mobile-ws-test-harness'
+import { FederationImportParams } from '../../../../../../shared/rpc-contract/orchestration-federation-relay-params'
 import '../../../unused-default-rpc-methods.test-fixture'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ORCHESTRATION_CONTRACT_VERSION } from '../../../../../../shared/protocol-version'
@@ -205,9 +213,7 @@ describe('orchestration federation control mail', () => {
 
   it('accepts a repeated import after a lost acknowledgment without duplicating mail', async () => {
     const first = await dispatchImport(importRequest('first-import', 1, 'relay-control'))
-    const repeated = await dispatchImport(
-      importRequest('repeated-import', 1, 'different-message-id')
-    )
+    const repeated = await dispatchImport(importRequest('repeated-import', 1, 'relay-control'))
 
     expect(first).toMatchObject({ ok: true, result: { imported: 1 } })
     expect(repeated).toMatchObject({ ok: true, result: { imported: 0 } })
@@ -300,6 +306,118 @@ describe('orchestration federation control mail', () => {
       ok: true,
       result: { count: 0, timedOut: true }
     })
+  })
+
+  it('rolls back a batch with a later invalid item, then accepts a corrected retry once', async () => {
+    const first = importRequest('batch-first', 1, 'batch-message-first')
+    const second = importRequest('batch-second', 3, 'batch-message-second')
+    const batch = {
+      ...first,
+      params: {
+        dispatchId,
+        items: [
+          ...FederationImportParams.parse(first.params).items,
+          ...FederationImportParams.parse(second.params).items
+        ]
+      }
+    }
+    const notify = vi.spyOn(workerRuntime, 'notifyMessageArrived')
+    await expect(dispatchImport(batch)).resolves.toMatchObject({ ok: false })
+    expect(workerDb.getMessageById('batch-message-first')).toBeUndefined()
+    expect(workerDb.getRemoteDispatchAttachment(dispatchId)?.to_worker_imported_sequence).toBe(0)
+    expect(notify).not.toHaveBeenCalled()
+
+    batch.params.items[1].sequence = 2
+    await expect(dispatchImport(batch)).resolves.toMatchObject({
+      ok: true,
+      result: { imported: 2, acknowledgedThrough: 2 }
+    })
+    await expect(dispatchImport(batch)).resolves.toMatchObject({
+      ok: true,
+      result: { imported: 0, acknowledgedThrough: 2 }
+    })
+    expect(notify).toHaveBeenCalledTimes(2)
+    expect(workerDb.getInbox()).toHaveLength(2)
+  })
+
+  it('refuses changed content on a retry after the import cursor advanced', async () => {
+    const original = importRequest('original', 1, 'immutable-message')
+    await expect(dispatchImport(original)).resolves.toMatchObject({ ok: true })
+    const params = FederationImportParams.parse(original.params)
+    params.items[0].payload = JSON.stringify({
+      from: `run:${runId}`,
+      subject: 'Changed after delivery',
+      body: 'different',
+      type: 'status',
+      priority: 'normal',
+      threadId: null,
+      payload: null
+    })
+    await expect(
+      dispatchImport({ ...original, id: 'changed-retry', params })
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'request_mismatch' }
+    })
+    expect(workerDb.getMessageById('immutable-message')?.subject).toBe('Continue')
+  })
+
+  it('refuses a different authenticated owner without importing messages', async () => {
+    await expect(
+      workerDispatcher.dispatch(importRequest('wrong-owner', 1, 'foreign-message'), {
+        authenticatedCallerFingerprint: 'another-device'
+      })
+    ).resolves.toMatchObject({ ok: false, error: { code: 'dispatch_not_found' } })
+    expect(workerDb.getInbox()).toHaveLength(0)
+  })
+
+  it('reconnects encrypted peers after a lost acknowledgement without replaying control mail', async () => {
+    const peer = await startEncryptedFederationPeer(
+      new RpcDispatcher({
+        runtime: workerRuntime,
+        methods: ORCHESTRATION_METHODS,
+        callerScope: { kind: 'runtime-paired', grants: [] }
+      })
+    )
+    workerDb.db
+      .prepare(
+        'UPDATE remote_dispatch_attachments SET home_peer_fingerprint = ? WHERE dispatch_id = ?'
+      )
+      .run(peer.fingerprint, dispatchId)
+    try {
+      const first = await authenticateMobileWsSession(peer.pairingUrl)
+      const request = importRequest('lost-ack', 1, 'encrypted-message')
+      sendEncryptedWsRequest(first, request)
+      await expect
+        .poll(() => workerDb.getRemoteDispatchAttachment(dispatchId)?.to_worker_imported_sequence)
+        .toBe(1)
+      const disconnected = waitForWsClose(first.ws)
+      first.ws.terminate()
+      await disconnected
+
+      const reconnected = await authenticateMobileWsSession(peer.pairingUrl)
+      const reader = createEncryptedWsResponseReader(reconnected)
+      try {
+        sendEncryptedWsRequest(reconnected, { ...request, id: 'retry-encrypted' })
+        await expect(reader.next('retry-encrypted')).resolves.toMatchObject({
+          ok: true,
+          result: { imported: 0, acknowledgedThrough: 1 }
+        })
+        const params = FederationImportParams.parse(request.params)
+        params.items[0].payload = params.items[0].payload.replace('Continue', 'Changed')
+        sendEncryptedWsRequest(reconnected, { ...request, id: 'conflicting-encrypted', params })
+        await expect(reader.next('conflicting-encrypted')).resolves.toMatchObject({
+          ok: false,
+          error: { code: 'request_mismatch' }
+        })
+        expect(workerDb.getInbox()).toHaveLength(1)
+      } finally {
+        reader.dispose()
+        reconnected.ws.close()
+      }
+    } finally {
+      await peer.close()
+    }
   })
 
   function checkRequest(id: string, wait = false, timeoutMs = 5_000, types?: string): RpcRequest {

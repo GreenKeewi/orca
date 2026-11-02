@@ -155,3 +155,8 @@ ci-shards/
 /.build/windows-native-benchmark/
 
 .local/static-analysis-research/
+
+/native/ade-desktop/target/
+/native/ade-desktop/resources/
+/native/ade-desktop/runtime-manifest.json
+/native/ade-desktop/gen/

@@ -1,3 +1,4 @@
+import { bootstrapTauriRuntime } from './tauri-bootstrap'
 import '../assets/main.css'
 
 import { Suspense, useMemo, useState } from 'react'
@@ -85,7 +86,7 @@ function WebRoot(): React.JSX.Element {
   )
 }
 
-function WebRootBoundary(): React.JSX.Element {
+function WebRootBoundary({ children }: { children?: React.ReactNode }): React.JSX.Element {
   useTranslation()
   return (
     <RecoverableRenderErrorBoundary
@@ -97,21 +98,37 @@ function WebRootBoundary(): React.JSX.Element {
         'Retry the web client or reconnect to the paired runtime.'
       )}
     >
-      <WebRoot />
+      {children ?? <WebRoot />}
     </RecoverableRenderErrorBoundary>
   )
 }
 
-// Why await: where a new pairing may be stored depends on what this browser can keep secret.
-void initWebDeviceKeySupport()
-  .catch((error: unknown) => console.warn('[web] Device key probe failed', error))
-  .finally(() => {
-    ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
-      <I18nProvider>
-        <WebRootBoundary />
-      </I18nProvider>
+function BootstrapFailure({ error }: { error: unknown }): never {
+  throw error
+}
+
+function mountWebRoot(error?: unknown): void {
+  const root = document.getElementById('root')
+  if (!root) {
+    throw new Error('Missing Orca renderer root.')
+  }
+  ReactDOM.createRoot(root).render(
+    <I18nProvider>
+      <WebRootBoundary>
+        {error === undefined ? undefined : <BootstrapFailure error={error} />}
+      </WebRootBoundary>
+    </I18nProvider>
+  )
+}
+
+void bootstrapTauriRuntime()
+  .then(() =>
+    initWebDeviceKeySupport().catch((error: unknown) =>
+      console.warn('[web] Device key probe failed', error)
     )
-  })
+  )
+  .then(() => mountWebRoot())
+  .catch((error: unknown) => mountWebRoot(error))
 
 // Prime WebGL here because web hosts terminals too; dynamic import keeps the App/pane-manager graph out of startup.
 void import('../lib/pane-manager/pane-webgl-renderer').then((module) =>

@@ -1,0 +1,7 @@
+{
+  "identifier": "main",
+  "description": "Local Orca renderer only; external pages receive no native capabilities.",
+  "windows": ["main"],
+  "local": true,
+  "permissions": ["core:default", "allow-ade-runtime-bootstrap"]
+}

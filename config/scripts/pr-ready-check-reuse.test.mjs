@@ -154,6 +154,7 @@ describe('ready-for-review required check reuse', () => {
     expect(workflow.jobs.verify.needs).toEqual([
       'code_paths',
       'preflight',
+      'repository_checks',
       ...new Set(
         PR_CHECK_JOBS.filter((job) => job !== 'static_analysis' && job !== 'typecheck').map(
           (job) => (job === 'orcad_browser' ? 'test' : job)

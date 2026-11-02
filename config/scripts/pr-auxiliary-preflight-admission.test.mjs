@@ -69,15 +69,20 @@ describe.each(routes)('%s preflight admission', (jobName, changedFile) => {
   const condition =
     jobName === 'orcad_browser' ? `(${job.if}) && (${chrome.if}) && (${browser.if})` : job.if
   // Unit shards wait for their plan rather than preflight.
-  const gate = jobName === 'orcad_browser' ? 'unit_plan' : 'preflight'
+  const gates = jobName === 'orcad_browser' ? ['unit_plan'] : ['preflight', 'repository_checks']
+  const passedGates = () => Object.fromEntries(gates.map((gate) => [gate, { result: 'success' }]))
 
   it.each([
     { name: 'all prerequisites pass', admitted: true },
-    { name: 'preflight fails', preflight: 'failure', admitted: false },
-    { name: 'preflight is cancelled', preflight: 'cancelled', admitted: false },
-    { name: 'preflight skips', preflight: 'skipped', admitted: false },
-    { name: 'preflight result is missing', preflight: '', admitted: false },
-    { name: 'preflight is unfinished', preflight: null, admitted: false },
+    ...gates.flatMap((gate) =>
+      [
+        ['fails', 'failure'],
+        ['is cancelled', 'cancelled'],
+        ['skips', 'skipped'],
+        ['result is missing', ''],
+        ['is unfinished', null]
+      ].map(([outcome, result]) => ({ name: `${gate} ${outcome}`, gate, result, admitted: false }))
+    ),
     { name: 'detector fails', detector: 'failure', admitted: false },
     { name: 'detector is cancelled', detector: 'cancelled', admitted: false },
     { name: 'detector skips', detector: 'skipped', admitted: false },
@@ -101,9 +106,8 @@ describe.each(routes)('%s preflight admission', (jobName, changedFile) => {
             [jobName]: scenario.selected === undefined ? 'true' : (scenario.selected ?? undefined)
           }
         },
-        [gate]: {
-          result: scenario.preflight === undefined ? 'success' : (scenario.preflight ?? undefined)
-        }
+        ...passedGates(),
+        ...(scenario.gate ? { [scenario.gate]: { result: scenario.result ?? undefined } } : {})
       }
     }
     if (jobName === 'orcad_browser') {
@@ -122,7 +126,7 @@ describe.each(routes)('%s preflight admission', (jobName, changedFile) => {
         cancelled: () => false,
         success: () => true,
         inputs: {},
-        needs: { code_paths: { result: 'success', outputs }, [gate]: { result: 'success' } }
+        needs: { code_paths: { result: 'success', outputs }, ...passedGates() }
       }
       if (jobName === 'orcad_browser') {
         context.inputs.browser_contract = evaluate(job.with.browser_contract, context)

@@ -92,7 +92,7 @@ it('only skips the unchanged smoke after a successful diff and dependency analys
   const workflow = parse(
     readFileSync(new URL('../../.github/workflows/pr.yml', import.meta.url), 'utf8')
   )
-  const steps = workflow.jobs.preflight.steps
+  const steps = workflow.jobs.repository_checks.steps
   const scope = steps.find((candidate) => candidate.id === 'orcad-smoke-scope')
   expect(scope.env).toEqual({ BASE_SHA: '${{ github.event.pull_request.base.sha }}' })
   // HEAD^1 bypasses merge-base lookup, permitting shallow checkout; payload head SHA is unused (see localization gate).

@@ -19,11 +19,12 @@ describe('PR workflow parallelism', () => {
       "${{ needs.code_paths.outputs.static_analysis == 'true' }}"
     )
     expect(guard?.background).toBe(true)
-    const typecheckIndex = workflow.jobs.preflight.steps.findIndex(
-      (step) => step.wait === 'typecheck'
+    const typeAwareIndex = workflow.jobs.preflight.steps.findIndex(
+      (step) => step.name === 'Enforce type-aware code-quality baseline'
     )
     const waitIndex = workflow.jobs.preflight.steps.findIndex((step) => step.wait === guard.id)
-    expect(waitIndex).toBeGreaterThan(typecheckIndex)
+    expect(typeAwareIndex).toBeGreaterThan(-1)
+    expect(waitIndex).toBeGreaterThan(typeAwareIndex)
     expect(guard?.['continue-on-error']).toBeUndefined()
   })
 

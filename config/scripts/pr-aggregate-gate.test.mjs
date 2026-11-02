@@ -23,6 +23,7 @@ describe('explicit PR aggregate result', () => {
     expect(aggregateJob.needs).toEqual([
       'code_paths',
       'preflight',
+      'repository_checks',
       ...aggregateSelectors.filter((job) => job !== 'static_analysis' && job !== 'typecheck')
     ])
     for (const job of ['e2e', 'terminal_ime_native', 'windows_wsl', 'unit_selection_evidence']) {

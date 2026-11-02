@@ -172,7 +172,7 @@ jobs:
           fi
 
   preflight:
-    name: static analysis and typecheck
+    name: static analysis
     needs: [code_paths]
     if: needs.code_paths.outputs.static_analysis == 'true' || needs.code_paths.outputs.typecheck == 'true'
     # Free hosted ARM: no job on the gate's critical path waits for preflight.
@@ -204,23 +204,12 @@ jobs:
         continue-on-error: true
         run: node -p '"executable=" + process.execPath' >> "$GITHUB_OUTPUT"
 
-      # Choose one root/mobile install: root-only store is 321MB/4.6s versus mixed 537MB/8.6s, saving unused mobile downloads on most PRs.
+      # Root-only store (321MB/4.6s versus mixed 537MB/8.6s): this half never installs mobile, so the native cycle check resolves without it.
       - uses: ./.github/actions/install-node-dependencies
-        if: needs.code_paths.outputs.mobile_dependencies != 'true'
         with:
           native-runtime: node
           node-version: '24'
 
-      - uses: ./.github/actions/install-node-dependencies
-        if: needs.code_paths.outputs.mobile_dependencies == 'true'
-        with:
-          native-runtime: node
-          node-version: '24'
-          cache-dependency-path: |
-            pnpm-lock.yaml
-            mobile/pnpm-lock.yaml
-
-      # Bun 1.4.3 introduces the compiler used by this job.
       - name: Set up Bun for preflight checks
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
@@ -308,8 +297,78 @@ jobs:
         if: needs.code_paths.outputs.static_analysis == 'true'
         run: node node_modules/oxlint/bin/oxlint --type-aware --config config/oxlint-code-quality-type-aware.json src config tests --deny-warnings
 
-      # Mobile installation changes import resolution for the native cycle check.
       - wait: native-code-quality
+
+      - wait: process-host-imports
+
+      - wait: main-sync-spawn-ratchet
+
+      - wait: js-plugin-lint
+
+      - name: Test Mobile CI tools and runtime routing
+        if: needs.code_paths.outputs.mobile_ci_tools == 'true'
+        env:
+          ORCA_BACKGROUND_LAUNCH: '1'
+          ORCA_BALANCE_UNIT_SHARDS: '1'
+        run: >-
+          node config/scripts/run-vitest.mjs run --config config/vitest.config.ts
+          --maxWorkers=4 --isolate --retry=0 --bail=0
+          config/scripts/mobile-release-check-scope.test.mjs
+          config/scripts/mobile-test-change-scope.test.mjs
+          config/scripts/pr-ready-check-reuse.test.mjs
+          config/scripts/win32-test-lane-registration.test.mjs
+          config/scripts/vitest-node-runtime-boundary.test.ts
+          config/scripts/vitest-sqlite-runtime-boundary.test.ts
+
+      # Report failure through the separate required check without blocking unrelated consumers.
+      - name: Smoke process-host package on Node 18
+        id: managed_hook_node18
+        if: success() && needs.code_paths.outputs.managed_hook_node18 == 'true'
+        continue-on-error: true
+        env:
+          NODE18_EXECUTABLE: ${{ steps.node18_executable.outputs.executable }}
+          ORCA_BACKGROUND_LAUNCH: '1'
+        run: |
+          test -n "$NODE18_EXECUTABLE"
+          "$NODE18_EXECUTABLE" config/scripts/smoke-process-host-node18.mjs
+
+  # Split from preflight at its mobile install: one 4-vCPU runner was CPU-saturated, so each half gets its own free runner.
+  repository_checks:
+    name: typecheck and repository checks
+    needs: [code_paths]
+    if: needs.code_paths.outputs.static_analysis == 'true' || needs.code_paths.outputs.typecheck == 'true'
+    runs-on: ubuntu-24.04-arm
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          # Fetch 50 for merge HEAD^1, no merge-base graph needed. Full-tree checkout omits blob:none to avoid refetching ~30k blobs (23s versus ~11s).
+          fetch-depth: 50
+          persist-credentials: false
+
+      # Choose one root/mobile install: root-only store is 321MB/4.6s versus mixed 537MB/8.6s, saving unused mobile downloads on most PRs.
+      - uses: ./.github/actions/install-node-dependencies
+        if: needs.code_paths.outputs.mobile_dependencies != 'true'
+        with:
+          native-runtime: node
+          node-version: '24'
+
+      - uses: ./.github/actions/install-node-dependencies
+        if: needs.code_paths.outputs.mobile_dependencies == 'true'
+        with:
+          native-runtime: node
+          node-version: '24'
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            mobile/pnpm-lock.yaml
+
+      # Bun 1.4.3 introduces the compiler used by this job.
+      - name: Set up Bun for preflight checks
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: config/.bun-version
+          no-cache: true
 
       # Install mobile before type-aware changed-code lint or unresolved mobile types become phantom error-type findings.
       - uses: ./.github/actions/install-mobile-dependencies
@@ -528,49 +587,17 @@ jobs:
 
       - wait: typecheck
 
-      - wait: process-host-imports
-
-      - wait: main-sync-spawn-ratchet
-
-      - wait: js-plugin-lint
-
       - wait: test-file-runners
-
-      - name: Test Mobile CI tools and runtime routing
-        if: needs.code_paths.outputs.mobile_ci_tools == 'true'
-        env:
-          ORCA_BACKGROUND_LAUNCH: '1'
-          ORCA_BALANCE_UNIT_SHARDS: '1'
-        run: >-
-          node config/scripts/run-vitest.mjs run --config config/vitest.config.ts
-          --maxWorkers=4 --isolate --retry=0 --bail=0
-          config/scripts/mobile-release-check-scope.test.mjs
-          config/scripts/mobile-test-change-scope.test.mjs
-          config/scripts/pr-ready-check-reuse.test.mjs
-          config/scripts/win32-test-lane-registration.test.mjs
-          config/scripts/vitest-node-runtime-boundary.test.ts
-          config/scripts/vitest-sqlite-runtime-boundary.test.ts
-
-      # Report failure through the separate required check without blocking unrelated consumers.
-      - name: Smoke process-host package on Node 18
-        id: managed_hook_node18
-        if: success() && needs.code_paths.outputs.managed_hook_node18 == 'true'
-        continue-on-error: true
-        env:
-          NODE18_EXECUTABLE: ${{ steps.node18_executable.outputs.executable }}
-          ORCA_BACKGROUND_LAUNCH: '1'
-        run: |
-          test -n "$NODE18_EXECUTABLE"
-          "$NODE18_EXECUTABLE" config/scripts/smoke-process-host-node18.mjs
 
   git_compatibility:
     name: Git compatibility
-    needs: [code_paths, preflight]
+    needs: [code_paths, preflight, repository_checks]
     if: >-
       !cancelled() &&
       needs.code_paths.result == 'success' &&
       needs.code_paths.outputs.git_compatibility == 'true' &&
-      needs.preflight.result == 'success'
+      needs.preflight.result == 'success' &&
+      needs.repository_checks.result == 'success'
     # One free hosted runner per lane: three lanes sharing one 4-vCPU runner pushed real-Git tests past their timeouts.
     strategy:
       fail-fast: false
@@ -616,12 +643,13 @@ jobs:
   # Run pinned real Codex: thread/read must repair an unindexed rollout’s threads row; stub-only units cannot detect upstream removal of this behavior.
   codex_index_heal_contract:
     name: Codex index-heal contract
-    needs: [code_paths, preflight]
+    needs: [code_paths, preflight, repository_checks]
     if: >-
       !cancelled() &&
       needs.code_paths.result == 'success' &&
       needs.code_paths.outputs.codex_index_heal_contract == 'true' &&
-      needs.preflight.result == 'success'
+      needs.preflight.result == 'success' &&
+      needs.repository_checks.result == 'success'
     # Why ARM: @openai/codex ships @openai/codex-linux-arm64.
     runs-on: ubuntu-24.04-arm
     env:
@@ -711,12 +739,13 @@ jobs:
 
   xterm_patch_sync:
     name: xterm patch sync
-    needs: [code_paths, preflight]
+    needs: [code_paths, preflight, repository_checks]
     if: >-
       !cancelled() &&
       needs.code_paths.result == 'success' &&
       needs.code_paths.outputs.xterm_patch_sync == 'true' &&
-      needs.preflight.result == 'success'
+      needs.preflight.result == 'success' &&
+      needs.repository_checks.result == 'success'
     # Use ARM for four-package pristine/patched rebuild byte comparison: output generated on Linux x64 reproduces on darwin-arm64.
     runs-on: ubuntu-24.04-arm
 
@@ -743,12 +772,13 @@ jobs:
 
   shell_contracts:
     name: shell contracts
-    needs: [code_paths, preflight]
+    needs: [code_paths, preflight, repository_checks]
     if: >-
       !cancelled() &&
       needs.code_paths.result == 'success' &&
       needs.code_paths.outputs.shell_contracts == 'true' &&
-      needs.preflight.result == 'success'
+      needs.preflight.result == 'success' &&
+      needs.repository_checks.result == 'success'
     # Exercise Linux ARM with the standalone aarch64 release and Ubuntu's zsh.
     runs-on: ubuntu-24.04-arm
     # Bound stalled prerequisite downloads instead of waiting for GitHub's 6-hour default.
@@ -950,12 +980,13 @@ jobs:
 
   cross-version-wire:
     name: cross-version wire compatibility
-    needs: [code_paths, preflight]
+    needs: [code_paths, preflight, repository_checks]
     if: >-
       !cancelled() &&
       needs.code_paths.result == 'success' &&
       needs.code_paths.outputs.cross-version-wire == 'true' &&
-      needs.preflight.result == 'success'
+      needs.preflight.result == 'success' &&
+      needs.repository_checks.result == 'success'
     # Why ARM: source-only: tagged checkout plus in-process vitest, no docker or browser.
     runs-on: ubuntu-24.04-arm
 
@@ -993,12 +1024,13 @@ jobs:
 
   managed_hook_node18:
     name: managed hooks on Node 18
-    needs: [code_paths, preflight]
+    needs: [code_paths, preflight, repository_checks]
     if: >-
       !cancelled() &&
       needs.code_paths.result == 'success' &&
       needs.code_paths.outputs.managed_hook_node18 == 'true' &&
-      needs.preflight.result == 'success'
+      needs.preflight.result == 'success' &&
+      needs.repository_checks.result == 'success'
     # Retain the required check while sharing preflight's checkout and built packages.
     runs-on: ubuntu-slim
     timeout-minutes: 5
@@ -1393,15 +1425,16 @@ jobs:
 
   e2e:
     name: e2e
-    needs: [code_paths, preflight]
+    needs: [code_paths, preflight, repository_checks]
     if: >-
       !cancelled() &&
       needs.code_paths.result == 'success' &&
       needs.code_paths.outputs.e2e_should_run == 'true' &&
       (
-        needs.preflight.result == 'success' ||
+        (needs.preflight.result == 'success' && needs.repository_checks.result == 'success') ||
         (
           needs.preflight.result == 'skipped' &&
+          needs.repository_checks.result == 'skipped' &&
           needs.code_paths.outputs.static_analysis == 'false' &&
           needs.code_paths.outputs.typecheck == 'false'
         )
@@ -1523,6 +1556,7 @@ jobs:
     needs:
       - code_paths
       - preflight
+      - repository_checks
       - git_compatibility
       - codex_index_heal_contract
       - xterm_patch_sync
@@ -1545,6 +1579,7 @@ jobs:
           CODE_PATHS: ${{ needs.code_paths.result }}
           SHOULD_RUN: ${{ needs.code_paths.outputs.should_run }}
           PREFLIGHT: ${{ needs.preflight.result }}
+          REPOSITORY_CHECKS: ${{ needs.repository_checks.result }}
           STATIC_ANALYSIS_SHOULD_RUN: ${{ needs.code_paths.outputs.static_analysis }}
           TYPECHECK_SHOULD_RUN: ${{ needs.code_paths.outputs.typecheck }}
           PREFLIGHT_SHOULD_RUN: ${{ needs.code_paths.outputs.static_analysis == 'true' || needs.code_paths.outputs.typecheck == 'true' }}
@@ -1603,6 +1638,7 @@ jobs:
           }
           # Require success when the PR has code-relevant changes
           check_job preflight "$PREFLIGHT" "$PREFLIGHT_SHOULD_RUN"
+          check_job repository_checks "$REPOSITORY_CHECKS" "$PREFLIGHT_SHOULD_RUN"
           check_job git_compatibility "$GIT_COMPATIBILITY" "$GIT_COMPATIBILITY_SHOULD_RUN"
           check_job codex_index_heal_contract "$CODEX_INDEX_HEAL_CONTRACT" "$CODEX_INDEX_HEAL_CONTRACT_SHOULD_RUN"
           check_job xterm_patch_sync "$XTERM_PATCH_SYNC" "$XTERM_PATCH_SYNC_SHOULD_RUN"

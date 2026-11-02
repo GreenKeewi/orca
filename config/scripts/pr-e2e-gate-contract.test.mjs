@@ -15,7 +15,7 @@ const prWorkflow = parseYaml(readFileSync(join(projectDir, '.github/workflows/pr
 const filterStep = prWorkflow.jobs.code_paths.steps.find(
   (step) => step.name === 'Filter changed E2E specs'
 )
-const rollbackStep = prWorkflow.jobs.preflight.steps.find(
+const rollbackStep = prWorkflow.jobs.repository_checks.steps.find(
   (step) => step.name === 'Check VM runtime rollback compatibility'
 )
 /** The route that sends a change to the two-Electron restart-survival spec. */

@@ -10,6 +10,7 @@ export const aggregateShell = aggregateJob.steps.find(
 )
 export const aggregateSelectors = PR_CHECK_JOBS.filter((job) => job !== 'orcad_browser')
 export const aggregateRequiredJobs = aggregateJob.needs.filter((job) => job !== 'code_paths')
+export const PREFLIGHT_JOBS = ['preflight', 'repository_checks']
 export const aggregateVariable = (job) => job.replaceAll('-', '_').toUpperCase()
 
 export function compileAggregateExpression(expression, contexts = ['needs']) {
@@ -56,9 +57,13 @@ export function aggregateNeeds(selected = 'true', overrides = {}) {
       ])
     )
   }
-  needs.preflight.result =
+  // Both preflight halves share one selection.
+  const preflightResult =
     aggregateEnvironmentExpressions.PREFLIGHT_SHOULD_RUN({ needs }).coerceString() === 'true'
       ? 'success'
       : 'skipped'
+  for (const job of PREFLIGHT_JOBS) {
+    needs[job].result = preflightResult
+  }
   return needs
 }

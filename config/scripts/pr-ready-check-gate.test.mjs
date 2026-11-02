@@ -8,7 +8,8 @@ import {
   aggregateNeeds,
   aggregateRequiredJobs as requiredJobs,
   aggregateSelectors,
-  aggregateShell as gate
+  aggregateShell as gate,
+  PREFLIGHT_JOBS
 } from './pr-aggregate-gate-context.mjs'
 
 async function verifyCases(environments, script, env = {}) {
@@ -71,9 +72,11 @@ describe.skipIf(process.platform === 'win32')(
       }
       for (const needs of plans) {
         const { static_analysis, typecheck } = needs.code_paths.outputs
-        expect(needs.preflight.result).toBe(
-          static_analysis === 'true' || typecheck === 'true' ? 'success' : 'skipped'
-        )
+        for (const job of PREFLIGHT_JOBS) {
+          expect(needs[job].result).toBe(
+            static_analysis === 'true' || typecheck === 'true' ? 'success' : 'skipped'
+          )
+        }
       }
       expect(await verifyCases(plans.map(aggregateEnvironment), gate.run)).toEqual(
         plans.map(() => 0)
@@ -122,7 +125,9 @@ describe.skipIf(process.platform === 'win32')(
           for (const otherSelected of ['true', 'false']) {
             for (const result of ['success', 'skipped']) {
               const needs = aggregateNeeds('false', { [phase]: selected, [other]: otherSelected })
-              needs.preflight.result = result
+              for (const job of PREFLIGHT_JOBS) {
+                needs[job].result = result
+              }
               cases.push(aggregateEnvironment(needs))
             }
           }

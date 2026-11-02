@@ -1,0 +1,32 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Orca ADE",
+  "version": "0.1.0",
+  "identifier": "dev.harshs.orca-ade",
+  "build": {
+    "frontendDist": "../../out/web"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Orca ADE \u2014 integration preview",
+        "url": "web-index.html",
+        "width": 1280,
+        "height": 800,
+        "visible": false
+      }
+    ],
+    "security": {
+      "capabilities": ["main"],
+      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: data: blob: https:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost ws://127.0.0.1:* http://127.0.0.1:*; worker-src 'self' blob:; frame-src https: http:"
+    }
+  },
+  "bundle": {
+    "active": false,
+    "resources": {
+      "resources/": "ade-runtime/"
+    },
+    "icon": ["../../resources/build/icon.png", "../../resources/build/icon.ico"]
+  }
+}

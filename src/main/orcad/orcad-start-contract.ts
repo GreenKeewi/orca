@@ -2,6 +2,7 @@ import type { ServeReadiness } from '../server/serve-readiness'
 import type { OrcadManagedStopContext } from '../../shared/orcad-stop-request'
 
 export type OrcadOptions = {
+  desktopParentStdio?: boolean
   port?: number
   json?: boolean
   noPairing?: boolean

@@ -52,6 +52,8 @@ export function parseArgs(argv: string[]): OrcadCommandArguments {
       }
       options.port = port
       i += 1
+    } else if (arg === '--desktop-parent-stdio') {
+      options.desktopParentStdio = true
     } else if (arg === '--json') {
       options.json = true
     } else if (arg === '--no-pairing') {

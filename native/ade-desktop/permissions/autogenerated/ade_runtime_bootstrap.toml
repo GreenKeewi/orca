@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-ade-runtime-bootstrap"
+description = "Enables the ade_runtime_bootstrap command without any pre-configured scope."
+commands.allow = ["ade_runtime_bootstrap"]
+
+[[permission]]
+identifier = "deny-ade-runtime-bootstrap"
+description = "Denies the ade_runtime_bootstrap command without any pre-configured scope."
+commands.deny = ["ade_runtime_bootstrap"]

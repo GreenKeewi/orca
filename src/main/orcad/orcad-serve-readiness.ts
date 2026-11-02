@@ -1,3 +1,4 @@
+import { desktopParentHandshake } from './orcad-desktop-parent'
 import type { ServeReadiness } from '../server/serve-readiness'
 import type { OrcaRuntimeRpcServer } from '../runtime/runtime-rpc'
 import { buildServePairingReadiness } from '../server/serve-pairing-readiness'
@@ -12,6 +13,7 @@ export async function buildOrcadServeReadiness(input: {
 }): Promise<ServeReadiness> {
   return {
     runtimeId: input.runtimeId,
+    ...desktopParentHandshake(input.options),
     ...(await buildServePairingReadiness(input.options, input.rpc)),
     // WSL CLI reconciliation runs only in desktop launch, so no repair is pending here.
     managedWslCliReconciliation: 'settled',

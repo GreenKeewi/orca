@@ -21,6 +21,7 @@ export type ServePairingReadiness =
     }
 
 export type ServeReadiness = {
+  desktopParent?: { protocolVersion: 1; nonce: string }
   runtimeId: string
   boundEndpoint: string | null
   advertisedEndpoint: string | null
@@ -75,6 +76,7 @@ export function renderServeReadiness(
   if (output.mode === 'json') {
     return JSON.stringify({
       type: 'orca_server_ready',
+      ...(readiness.desktopParent ? { desktopParent: readiness.desktopParent } : {}),
       schemaVersion: 1,
       runtimeId: readiness.runtimeId,
       endpoint: readiness.boundEndpoint,

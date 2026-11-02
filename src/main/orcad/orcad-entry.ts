@@ -1,3 +1,4 @@
+import { desktopParentHandshake, installDesktopParentShutdown } from './orcad-desktop-parent'
 // Compose the Node-host runtime; paired desktop pages work even without a local browser engine.
 import process from 'node:process'
 import { getAppEnvironment } from '../../shared/app-environment'
@@ -8,7 +9,6 @@ import { prepareOrcadSecretStoreAndMigrate } from './orcad-secret-store-startup'
 import { describeOrcadBindExposure, resolveOrcadBindHost } from './orcad-bind-address'
 import {
   flushOrcadProfileStoreForShutdown,
-  installOrcadShutdownSignals,
   startOrcadWithHost,
   stopOrcadStructuredAgentSessions,
   type OrcadShutdownTrigger
@@ -38,6 +38,7 @@ let closeOrcadObservability = (): Promise<void> => Promise.resolve()
 
 /** Resolve after transport readiness publishes the desktop-compatible serve payload. */
 export async function startOrcad(options: OrcadOptions = {}): Promise<OrcadHandle> {
+  desktopParentHandshake(options)
   installOrcadHostAdapters()
   // Inherited terminal identity must not fence orcad’s CLI children to the launching desktop.
   stampRuntimeSourceEnv(process.env, null)
@@ -357,7 +358,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   // Fire-and-forget startup work can reject before its first await completes.
   installOrcadProcessErrorGuards(() => shutdownTrigger)
   const startup = startOrcad(options)
-  const requestShutdown = installOrcadShutdownSignals(async () => (await startup).stop())
+  const requestShutdown = installDesktopParentShutdown(options, startup)
   shutdownTrigger = requestShutdown
   const handle = await startup
   // Stop requests must name the runtime/instance established by startup.
